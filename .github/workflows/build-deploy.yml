@@ -6,6 +6,7 @@ on:
 
 env:
   IMAGE_NAME: python-app
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }} # Add your GitHub PAT here
 
 jobs:
   build-and-deploy:
@@ -14,6 +15,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Configure Git for Terraform module downloads
+        run: |
+          git config --global url."https://${GITHUB_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
       - name: Log in to Azure
         uses: azure/login@v2
@@ -35,11 +40,19 @@ jobs:
           terraform_version: 1.9.5
 
       - name: Terraform Init
-        run: cd terraformv2/examples/linux_container && terraform init
+        run: |
+          cd terraformv2/examples/linux_container
+          terraform init -input=false
 
-      - name: Terraform Apply
+      - name: Terraform Plan
         run: |
           cd terraformv2/examples/linux_container
           terraform plan \
             -var="image_tag=${{ github.run_number }}" \
-            -var="env=${{ secrets.APP_ENV }}"
+            -var="env=${{ secrets.APP_ENV }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        run: |
+          cd terraformv2/examples/linux_container
+          terraform apply -auto-approve tfplan
