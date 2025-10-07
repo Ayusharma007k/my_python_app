@@ -7,7 +7,7 @@ provider "azurerm" {
 ## Local declaration
 ##-----------------------------------------------------------------------------
 locals {
-  name        = "test"
+  name        = "ayush-test"
   environment = "dev"
   label_order = ["name", "environment"]
   location    = "Canada Central"
@@ -58,10 +58,10 @@ module "app-container" {
   ## To Deploy Container
   ##-----------------------------------------------------------------------------
   use_docker               = true
-  docker_image_name        = "nginx:latest"
-  docker_registry_url      = "<registryname>.azurecr.io"
-  docker_registry_username = "<registryname>"
-  docker_registry_password = "<docker_registry_password>"
+  docker_image_name        = "python-app"
+  docker_registry_url      = "ayushacr123.azurecr.io"
+  # docker_registry_username = "<registryname>"
+  # docker_registry_password = "<docker_registry_password>"
   acr_id                   = "/subscriptions/1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11/resourceGroups/ayush-rg/providers/Microsoft.ContainerRegistry/registries/ayushacr123"
 
   site_config = {
