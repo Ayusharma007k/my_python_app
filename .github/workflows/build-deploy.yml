@@ -45,9 +45,11 @@ jobs:
           pwd
 
       - name: Terraform Init
-        run: |
-          cd terraformv3/examples/complete/container_platform/
-          terraform init -input=false
+        working-directory: terraformv3/examples/complete/container_platform
+        run: terraform init -input=false
+        # run: |
+        #   cd terraformv3/examples/complete/container_platform/
+        #   terraform init -input=false
 
       - name: Terraform Plan
         run: |
