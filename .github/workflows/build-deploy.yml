@@ -39,6 +39,11 @@ jobs:
         with:
           terraform_version: 1.9.5
 
+      - name: debug paths
+        run: |
+          ls -la
+          pwd
+
       - name: Terraform Init
         run: |
           cd terraformv3/examples/complete/container_platform/
