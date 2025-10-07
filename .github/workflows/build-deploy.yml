@@ -41,12 +41,12 @@ jobs:
 
       - name: Terraform Init
         run: |
-          cd terraformv2/examples/linux_container
+          cd terraformv3/examples/complete/container_app
           terraform init -input=false
 
       - name: Terraform Plan
         run: |
-          cd terraformv2/examples/linux_container
+          cd terraformv3/examples/complete/container_app
           terraform plan \
             -var="image_tag=${{ github.run_number }}" \
             -var="env=${{ secrets.APP_ENV }}" \
