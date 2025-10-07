@@ -52,7 +52,7 @@ jobs:
             -var="env=${{ secrets.APP_ENV }}" \
             -out=tfplan
 
-      - name: Terraform Apply
-        run: |
-          cd terraformv2/examples/linux_container
-          terraform apply -auto-approve tfplan
+      # - name: Terraform Apply
+      #   run: |
+      #     cd terraformv3/examples/complete/container_platform/
+      #     terraform apply -auto-approve tfplan
