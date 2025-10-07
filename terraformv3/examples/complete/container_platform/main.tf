@@ -62,7 +62,7 @@ module "app-container" {
   docker_registry_url      = "<registryname>.azurecr.io"
   docker_registry_username = "<registryname>"
   docker_registry_password = "<docker_registry_password>"
-  acr_id                   = "<acr_id>"
+  acr_id                   = "/subscriptions/1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11/resourceGroups/ayush-rg/providers/Microsoft.ContainerRegistry/registries/ayushacr123"
 
   site_config = {
     container_registry_use_managed_identity = true
