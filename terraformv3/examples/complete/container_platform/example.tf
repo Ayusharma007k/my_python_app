@@ -1,6 +1,5 @@
 provider "azurerm" {
   features {}
-  # subscription_id = "1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11"
 }
 
 ##----------------------------------------------------------------------------- 
@@ -38,59 +37,85 @@ module "log-analytics" {
   log_analytics_workspace_sku      = "PerGB2018"
   resource_group_name              = module.resource_group.resource_group_name
   log_analytics_workspace_location = module.resource_group.resource_group_location
-  log_analytics_workspace_id       = module.log-analytics.workspace_id
 }
 
 ##----------------------------------------------------------------------------- 
-## App service with container runtime 
+## App Service Plan
 ##-----------------------------------------------------------------------------
-module "app-container" {
-  source              = "../../.."
-  name                = local.name
-  environment         = local.environment
-  label_order         = local.label_order
-  resource_group_name = module.resource_group.resource_group_name
+resource "azurerm_app_service_plan" "plan" {
+  name                = "${local.name}-plan"
   location            = module.resource_group.resource_group_location
-  os_type             = "Linux"
-  sku_name            = "B1"
+  resource_group_name = module.resource_group.resource_group_name
+  kind                = "Linux"
+  reserved            = true
 
-  ##----------------------------------------------------------------------------- 
-  ## To Deploy Container
-  ##-----------------------------------------------------------------------------
-  use_docker               = true
-  docker_image_name        = "python-app"
-  docker_registry_url      = "ayushacr123.azurecr.io"
-  # docker_registry_username = "<registryname>"
-  # docker_registry_password = "<docker_registry_password>"
-  acr_id                   = "/subscriptions/1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11/resourceGroups/ayush-rg/providers/Microsoft.ContainerRegistry/registries/ayushacr123"
-
-  site_config = {
-    container_registry_use_managed_identity = true
+  sku {
+    tier = "Basic"
+    size = "B1"
   }
-  app_settings = {
-    foo = "bar"
-  }
+}
 
-  ##----------------------------------------------------------------------------- 
-  ## App Service logs
-  ##-----------------------------------------------------------------------------
+##----------------------------------------------------------------------------- 
+## App Service (Production Slot)
+##-----------------------------------------------------------------------------
+resource "azurerm_linux_web_app" "prod" {
+  name                = local.name
+  location            = module.resource_group.resource_group_location
+  resource_group_name = module.resource_group.resource_group_name
+  service_plan_id     = azurerm_app_service_plan.plan.id
 
-  app_service_logs = {
-    detailed_error_messages = false
-    failed_request_tracing  = false
-    application_logs = {
-      file_system_level = "Information"
-    }
-    http_logs = {
-      file_system = {
-        retention_in_days = 7
-        retention_in_mb   = 35
-      }
-    }
+  site_config {
+    linux_fx_version = "DOCKER|${var.docker_registry_url}/${var.docker_image_name}:${var.image_tag}"
   }
 
-  ##----------------------------------------------------------------------------- 
-  ## log analytics
-  ##-----------------------------------------------------------------------------
-  log_analytics_workspace_id = module.log-analytics.workspace_id
+  app_settings = var.app_settings
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+##----------------------------------------------------------------------------- 
+## Blue Slot
+##-----------------------------------------------------------------------------
+resource "azurerm_linux_web_app_slot" "blue" {
+  name                = "blue"
+  location            = module.resource_group.resource_group_location
+  resource_group_name = module.resource_group.resource_group_name
+  app_service_plan_id = azurerm_app_service_plan.plan.id
+  parent_app_id       = azurerm_linux_web_app.prod.id
+
+  site_config {
+    linux_fx_version = "DOCKER|${var.docker_registry_url}/${var.docker_image_name}:${var.image_tag}"
+  }
+
+  app_settings = var.app_settings
+}
+
+##----------------------------------------------------------------------------- 
+## Green Slot
+##-----------------------------------------------------------------------------
+resource "azurerm_linux_web_app_slot" "green" {
+  name                = "green"
+  location            = module.resource_group.resource_group_location
+  resource_group_name = module.resource_group.resource_group_name
+  app_service_plan_id = azurerm_app_service_plan.plan.id
+  parent_app_id       = azurerm_linux_web_app.prod.id
+
+  site_config {
+    linux_fx_version = "DOCKER|${var.docker_registry_url}/${var.docker_image_name}:${var.image_tag}"
+  }
+
+  app_settings = var.app_settings
+}
+
+##----------------------------------------------------------------------------- 
+## Outputs
+##-----------------------------------------------------------------------------
+output "current_slot" {
+  value = var.current_slot != "" ? var.current_slot : "blue"
+}
+
+output "production_url" {
+  value = azurerm_linux_web_app.prod.default_site_hostname
 }
