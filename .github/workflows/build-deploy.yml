@@ -6,8 +6,9 @@ on:
 
 env:
   IMAGE_NAME: python-app
-  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }} # GitHub PAT
 
+  # Build and deploy job
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -26,11 +27,13 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Log in to ACR
-        run: az acr login --name ${{ secrets.ACR_NAME }}
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Build and Push Docker image
         run: |
           IMAGE_TAG=${{ github.run_number }}
+          # Push with both dynamic tag and latest tag
           az acr build --registry ${{ secrets.ACR_NAME }} \
             --image $IMAGE_NAME:$IMAGE_TAG \
             --image $IMAGE_NAME:latest .
@@ -40,6 +43,12 @@ jobs:
         with:
           terraform_version: 1.9.5
 
+      - name: Debug paths
+        run: |
+          ls -la
+          pwd
+
+      # ------------------- Terraform Steps with SP -------------------
       - name: Terraform Init
         working-directory: terraformv3/examples/complete/container_platform
         env:
@@ -58,13 +67,8 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           terraform plan \
-            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-            -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-            -var="docker_registry_url=${{ secrets.ACR_LOGIN_SERVER }}" \
-            -var="docker_image_name=${{ env.IMAGE_NAME }}" \
             -var="image_tag=${{ github.run_number }}" \
+            -var="env=${{ secrets.APP_ENV }}" \
             -out=tfplan
 
       - name: Terraform Apply

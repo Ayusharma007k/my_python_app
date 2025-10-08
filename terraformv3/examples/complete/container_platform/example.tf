@@ -1,42 +1,27 @@
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = ">= 3.0"
-    }
-  }
-
-  required_version = ">= 1.3.0"
-}
-
 provider "azurerm" {
   features {}
-
-  # Service Principal Authentication
-  client_id       = var.client_id
-  client_secret   = var.client_secret
-  subscription_id = var.subscription_id
-  tenant_id       = var.tenant_id
+  # subscription_id = "1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11"
 }
 
 ##----------------------------------------------------------------------------- 
-## Locals
+## Local declaration
 ##-----------------------------------------------------------------------------
 locals {
   name        = "ayush-test"
   environment = "dev"
+  label_order = ["name", "environment"]
   location    = "Canada Central"
 }
 
 ##----------------------------------------------------------------------------- 
-## Resource Group
+## Resource group
 ##-----------------------------------------------------------------------------
 module "resource_group" {
   source      = "clouddrove/resource-group/azure"
   version     = "1.0.2"
   name        = local.name
   environment = local.environment
-  label_order = ["name", "environment"]
+  label_order = local.label_order
   location    = local.location
 }
 
@@ -48,101 +33,64 @@ module "log-analytics" {
   version                          = "1.1.0"
   name                             = local.name
   environment                      = local.environment
-  label_order                      = ["name", "environment"]
+  label_order                      = local.label_order
   create_log_analytics_workspace   = true
   log_analytics_workspace_sku      = "PerGB2018"
   resource_group_name              = module.resource_group.resource_group_name
   log_analytics_workspace_location = module.resource_group.resource_group_location
+  log_analytics_workspace_id       = module.log-analytics.workspace_id
 }
 
 ##----------------------------------------------------------------------------- 
-## App Service Plan
+## App service with container runtime 
 ##-----------------------------------------------------------------------------
-resource "azurerm_app_service_plan" "plan" {
-  name                = "${local.name}-plan"
-  location            = module.resource_group.resource_group_location
-  resource_group_name = module.resource_group.resource_group_name
-  kind                = "Linux"
-  reserved            = true
-
-  sku {
-    tier = "Basic"
-    size = "B1"
-  }
-}
-
-##----------------------------------------------------------------------------- 
-## Production App Service
-##-----------------------------------------------------------------------------
-resource "azurerm_linux_web_app" "prod" {
+module "app-container" {
+  source              = "../../.."
   name                = local.name
+  environment         = local.environment
+  label_order         = local.label_order
+  resource_group_name = module.resource_group.resource_group_name
   location            = module.resource_group.resource_group_location
-  resource_group_name = module.resource_group.resource_group_name
-  service_plan_id     = azurerm_app_service_plan.plan.id
+  os_type             = "Linux"
+  sku_name            = "B1"
 
-  site_config {
-    linux_fx_version = "DOCKER|${var.docker_registry_url}/${var.docker_image_name}:${var.image_tag}"
+  ##----------------------------------------------------------------------------- 
+  ## To Deploy Container
+  ##-----------------------------------------------------------------------------
+  use_docker               = true
+  docker_image_name        = "python-app"
+  docker_registry_url      = "ayushacr123.azurecr.io"
+  # docker_registry_username = "<registryname>"
+  # docker_registry_password = "<docker_registry_password>"
+  acr_id                   = "/subscriptions/1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11/resourceGroups/ayush-rg/providers/Microsoft.ContainerRegistry/registries/ayushacr123"
+
+  site_config = {
+    container_registry_use_managed_identity = true
+  }
+  app_settings = {
+    foo = "bar"
   }
 
-  app_settings = var.app_settings
+  ##----------------------------------------------------------------------------- 
+  ## App Service logs
+  ##-----------------------------------------------------------------------------
 
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
-##----------------------------------------------------------------------------- 
-## Blue Slot
-##-----------------------------------------------------------------------------
-resource "azurerm_linux_web_app_slot" "blue" {
-  name                = "blue"
-  location            = module.resource_group.resource_group_location
-  resource_group_name = module.resource_group.resource_group_name
-  app_service_plan_id = azurerm_app_service_plan.plan.id
-  parent_app_id       = azurerm_linux_web_app.prod.id
-
-  site_config {
-    linux_fx_version = "DOCKER|${var.docker_registry_url}/${var.docker_image_name}:${var.image_tag}"
+  app_service_logs = {
+    detailed_error_messages = false
+    failed_request_tracing  = false
+    application_logs = {
+      file_system_level = "Information"
+    }
+    http_logs = {
+      file_system = {
+        retention_in_days = 7
+        retention_in_mb   = 35
+      }
+    }
   }
 
-  app_settings = var.app_settings
-}
-
-##----------------------------------------------------------------------------- 
-## Green Slot
-##-----------------------------------------------------------------------------
-resource "azurerm_linux_web_app_slot" "green" {
-  name                = "green"
-  location            = module.resource_group.resource_group_location
-  resource_group_name = module.resource_group.resource_group_name
-  app_service_plan_id = azurerm_app_service_plan.plan.id
-  parent_app_id       = azurerm_linux_web_app.prod.id
-
-  site_config {
-    linux_fx_version = "DOCKER|${var.docker_registry_url}/${var.docker_image_name}:${var.image_tag}"
-  }
-
-  app_settings = var.app_settings
-}
-
-##----------------------------------------------------------------------------- 
-## Slot Swap (Blue-Green)
-##-----------------------------------------------------------------------------
-resource "azurerm_linux_web_app_slot_swap" "swap" {
-  count               = var.auto_swap ? 1 : 0
-  resource_group_name = module.resource_group.resource_group_name
-  app_service_id      = azurerm_linux_web_app.prod.id
-  name                = azurerm_linux_web_app.prod.name
-  target_slot_name    = var.current_slot == "blue" ? "green" : "blue"
-}
-
-##----------------------------------------------------------------------------- 
-## Outputs
-##-----------------------------------------------------------------------------
-output "current_slot" {
-  value = var.current_slot != "" ? var.current_slot : "blue"
-}
-
-output "production_url" {
-  value = azurerm_linux_web_app.prod.default_site_hostname
+  ##----------------------------------------------------------------------------- 
+  ## log analytics
+  ##-----------------------------------------------------------------------------
+  log_analytics_workspace_id = module.log-analytics.workspace_id
 }
