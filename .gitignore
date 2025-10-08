@@ -4,3 +4,11 @@ __pycache__/
 .terraform/
 terraform.tfstate*
 *.log
+# ignored files
+*.tfstate
+*.tfstate.backup
+.terraform
+.idea
+*.iml
+.terraform.tfstate.lock.info
+.terraform.lock.hcl
