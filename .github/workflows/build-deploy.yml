@@ -32,7 +32,10 @@ jobs:
       - name: Build and Push Docker image
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          az acr build --registry ${{ secrets.ACR_NAME }} --image $IMAGE_NAME:$IMAGE_TAG .
+          # Push with both dynamic tag and latest tag
+          az acr build --registry ${{ secrets.ACR_NAME }} \
+            --image $IMAGE_NAME:$IMAGE_TAG \
+            --image $IMAGE_NAME:latest .
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
