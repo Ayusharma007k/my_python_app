@@ -8,6 +8,7 @@ env:
   IMAGE_NAME: python-app
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }} # GitHub PAT
 
+  # Build and deploy job
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
