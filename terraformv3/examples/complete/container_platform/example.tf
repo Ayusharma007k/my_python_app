@@ -56,7 +56,7 @@ resource "azurerm_app_service_plan" "plan" {
 }
 
 ##----------------------------------------------------------------------------- 
-## App Service (Production Slot)
+## App Service (Production)
 ##-----------------------------------------------------------------------------
 resource "azurerm_linux_web_app" "prod" {
   name                = local.name
@@ -107,6 +107,16 @@ resource "azurerm_linux_web_app_slot" "green" {
   }
 
   app_settings = var.app_settings
+}
+
+##----------------------------------------------------------------------------- 
+## Slot Swap Logic
+##-----------------------------------------------------------------------------
+resource "azurerm_linux_web_app_slot_swap" "swap" {
+  count           = var.auto_swap ? 1 : 0
+  resource_group_name = module.resource_group.resource_group_name
+  name                = azurerm_linux_web_app.prod.name
+  target_slot_name    = var.current_slot == "blue" ? "green" : "blue"
 }
 
 ##----------------------------------------------------------------------------- 
