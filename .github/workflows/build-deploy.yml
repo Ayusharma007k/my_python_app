@@ -6,7 +6,7 @@ on:
 
 env:
   IMAGE_NAME: python-app
-  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }} # GitHub PAT
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
   build-and-deploy:
@@ -26,13 +26,11 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Log in to ACR
-        run: |
-          az acr login --name ${{ secrets.ACR_NAME }}
+        run: az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Build and Push Docker image
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          # Push with both dynamic tag and latest tag
           az acr build --registry ${{ secrets.ACR_NAME }} \
             --image $IMAGE_NAME:$IMAGE_TAG \
             --image $IMAGE_NAME:latest .
@@ -42,12 +40,6 @@ jobs:
         with:
           terraform_version: 1.9.5
 
-      - name: Debug paths
-        run: |
-          ls -la
-          pwd
-
-      # ------------------- Terraform Steps -------------------
       - name: Terraform Init
         working-directory: terraformv3/examples/complete/container_platform
         env:
@@ -57,39 +49,29 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform init -input=false
 
-      - name: Get current production slot
-        id: get_slot
+      - name: Terraform Plan
         working-directory: terraformv3/examples/complete/container_platform
-        run: |
-          CURRENT_SLOT=$(terraform output -raw current_slot)
-          echo "current_slot=$CURRENT_SLOT" >> $GITHUB_ENV
-
-      - name: Determine target slot
-        run: |
-          if [ "$current_slot" = "blue" ]; then
-            echo "TARGET_SLOT=green" >> $GITHUB_ENV
-          else
-            echo "TARGET_SLOT=blue" >> $GITHUB_ENV
-          fi
-          echo "Deploying to slot: $TARGET_SLOT"
-
-      - name: Terraform Plan for target slot
-        working-directory: terraformv3/examples/complete/container_platform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           terraform plan \
+            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+            -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
+            -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+            -var="docker_registry_url=${{ secrets.ACR_LOGIN_SERVER }}" \
+            -var="docker_image_name=${{ env.IMAGE_NAME }}" \
             -var="image_tag=${{ github.run_number }}" \
-            -var="slot_name=${{ env.TARGET_SLOT }}" \
-            -var="env=${{ secrets.APP_ENV }}" \
             -out=tfplan
 
-      - name: Terraform Apply for target slot
+      - name: Terraform Apply
         working-directory: terraformv3/examples/complete/container_platform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform apply -auto-approve tfplan
-
-      - name: Swap deployment slots
-        run: |
-          az webapp deployment slot swap \
-            --name ${{ secrets.WEBAPP_NAME }} \
-            --resource-group ${{ secrets.RESOURCE_GROUP }} \
-            --slot ${{ env.TARGET_SLOT }} \
-            --target-slot production

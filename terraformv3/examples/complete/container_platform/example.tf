@@ -1,26 +1,42 @@
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 3.0"
+    }
+  }
+
+  required_version = ">= 1.3.0"
+}
+
 provider "azurerm" {
   features {}
+
+  # Service Principal Authentication
+  client_id       = var.client_id
+  client_secret   = var.client_secret
+  subscription_id = var.subscription_id
+  tenant_id       = var.tenant_id
 }
 
 ##----------------------------------------------------------------------------- 
-## Local declaration
+## Locals
 ##-----------------------------------------------------------------------------
 locals {
   name        = "ayush-test"
   environment = "dev"
-  label_order = ["name", "environment"]
   location    = "Canada Central"
 }
 
 ##----------------------------------------------------------------------------- 
-## Resource group
+## Resource Group
 ##-----------------------------------------------------------------------------
 module "resource_group" {
   source      = "clouddrove/resource-group/azure"
   version     = "1.0.2"
   name        = local.name
   environment = local.environment
-  label_order = local.label_order
+  label_order = ["name", "environment"]
   location    = local.location
 }
 
@@ -32,7 +48,7 @@ module "log-analytics" {
   version                          = "1.1.0"
   name                             = local.name
   environment                      = local.environment
-  label_order                      = local.label_order
+  label_order                      = ["name", "environment"]
   create_log_analytics_workspace   = true
   log_analytics_workspace_sku      = "PerGB2018"
   resource_group_name              = module.resource_group.resource_group_name
@@ -56,7 +72,7 @@ resource "azurerm_app_service_plan" "plan" {
 }
 
 ##----------------------------------------------------------------------------- 
-## App Service (Production)
+## Production App Service
 ##-----------------------------------------------------------------------------
 resource "azurerm_linux_web_app" "prod" {
   name                = local.name
@@ -110,11 +126,12 @@ resource "azurerm_linux_web_app_slot" "green" {
 }
 
 ##----------------------------------------------------------------------------- 
-## Slot Swap Logic
+## Slot Swap (Blue-Green)
 ##-----------------------------------------------------------------------------
 resource "azurerm_linux_web_app_slot_swap" "swap" {
-  count           = var.auto_swap ? 1 : 0
+  count               = var.auto_swap ? 1 : 0
   resource_group_name = module.resource_group.resource_group_name
+  app_service_id      = azurerm_linux_web_app.prod.id
   name                = azurerm_linux_web_app.prod.name
   target_slot_name    = var.current_slot == "blue" ? "green" : "blue"
 }
