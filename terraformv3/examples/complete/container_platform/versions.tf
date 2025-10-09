@@ -2,10 +2,10 @@
 # Variables
 ###############################################################
 
-# variable "subscription_id" {
-#   description = "Azure Subscription ID"
-#   type        = string
-# }
+variable "slot_name" {
+  description = "Slot name"
+  type        = string
+}
 
 variable "location" {
   description = "Azure region for deployment"

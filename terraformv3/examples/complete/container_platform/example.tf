@@ -102,7 +102,7 @@ resource "azurerm_linux_web_app_slot" "blue" {
   }
 
   app_settings = {
-    SLOT_NAME = "blue"
+    SLOT_NAME = var.slot_name
   }
 
   identity {
@@ -122,7 +122,7 @@ resource "azurerm_linux_web_app_slot" "green" {
     container_registry_use_managed_identity = true
   }
   app_settings = {
-    SLOT_NAME = "green"
+    SLOT_NAME = var.slot_name
   }
 
   identity {
