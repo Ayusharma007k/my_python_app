@@ -1,6 +1,4 @@
-
-
-name: Build and Deploy Single Web App
+name: Build and Deploy Web App (Blue/Green with Auto-Swap)
 
 on:
   push:
@@ -8,9 +6,7 @@ on:
 
 env:
   IMAGE_NAME: python-app
-  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }} # GitHub PAT
 
-  # Build and deploy job
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -21,7 +17,7 @@ jobs:
 
       - name: Configure Git for Terraform module downloads
         run: |
-          git config --global url."https://${GITHUB_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://${{ secrets.GH_TOKEN }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
       - name: Log in to Azure
         uses: azure/login@v2
@@ -32,25 +28,37 @@ jobs:
         run: |
           az acr login --name ${{ secrets.ACR_NAME }}
 
-      - name: Build and Push Docker image
+      - name: Determine Deployment Slot (Blue/Green)
+        id: slot
+        run: |
+          # Toggle deployment slot
+          LAST_SLOT_FILE=".last_slot"
+          if [ -f "$LAST_SLOT_FILE" ]; then
+            LAST_SLOT=$(cat $LAST_SLOT_FILE)
+            if [ "$LAST_SLOT" == "blue" ]; then
+              echo "green" > $LAST_SLOT_FILE
+              echo "slot=green" >> $GITHUB_OUTPUT
+            else
+              echo "blue" > $LAST_SLOT_FILE
+              echo "slot=blue" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "blue" > $LAST_SLOT_FILE
+            echo "slot=blue" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and Push Docker image to ACR
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          # Push with both dynamic tag and latest tag
           az acr build --registry ${{ secrets.ACR_NAME }} \
-            --image $IMAGE_NAME:$IMAGE_TAG \
-            --image $IMAGE_NAME:latest .
+            --image ${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
+            --image ${{ env.IMAGE_NAME }}:latest .
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
-      - name: Debug paths
-        run: |
-          ls -la
-          pwd
-
-      # ------------------- Terraform Steps with SP -------------------
       - name: Terraform Init
         working-directory: terraformv3/examples/complete/container_platform
         env:
@@ -70,7 +78,9 @@ jobs:
         run: |
           terraform plan \
             -var="image_tag=${{ github.run_number }}" \
-            -var="env=${{ secrets.APP_ENV }}" \
+            -var="slot_name=${{ steps.slot.outputs.slot }}" \
+            -var="acr_login_server=${{ secrets.ACR_LOGIN_SERVER }}" \
+            -var="image_name=${{ env.IMAGE_NAME }}" \
             -out=tfplan
 
       - name: Terraform Apply
