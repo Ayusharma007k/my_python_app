@@ -52,7 +52,7 @@ module "app-container" {
   resource_group_name = module.resource_group.resource_group_name
   location            = module.resource_group.resource_group_location
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "S1"
 
   ##----------------------------------------------------------------------------- 
   ## To Deploy Container
