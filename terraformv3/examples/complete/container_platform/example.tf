@@ -1,11 +1,13 @@
+###############################################################
+# Provider
+###############################################################
 provider "azurerm" {
   features {}
-  # subscription_id = "1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11"
 }
 
-##----------------------------------------------------------------------------- 
-## Local declaration
-##-----------------------------------------------------------------------------
+###############################################################
+# Local declaration
+###############################################################
 locals {
   name        = "ayush-test"
   environment = "dev"
@@ -13,9 +15,9 @@ locals {
   location    = "Canada Central"
 }
 
-##----------------------------------------------------------------------------- 
-## Resource group
-##-----------------------------------------------------------------------------
+###############################################################
+# Resource Group
+###############################################################
 module "resource_group" {
   source      = "clouddrove/resource-group/azure"
   version     = "1.0.2"
@@ -25,9 +27,9 @@ module "resource_group" {
   location    = local.location
 }
 
-##----------------------------------------------------------------------------- 
-## Log Analytics
-##-----------------------------------------------------------------------------
+###############################################################
+# Log Analytics
+###############################################################
 module "log-analytics" {
   source                           = "clouddrove/log-analytics/azure"
   version                          = "1.1.0"
@@ -41,9 +43,9 @@ module "log-analytics" {
   log_analytics_workspace_id       = module.log-analytics.workspace_id
 }
 
-##----------------------------------------------------------------------------- 
-## App service with container runtime 
-##-----------------------------------------------------------------------------
+###############################################################
+# Primary App Service (Production Slot)
+###############################################################
 module "app-container" {
   source              = "../../.."
   name                = local.name
@@ -54,26 +56,18 @@ module "app-container" {
   os_type             = "Linux"
   sku_name            = "S1"
 
-  ##----------------------------------------------------------------------------- 
-  ## To Deploy Container
-  ##-----------------------------------------------------------------------------
   use_docker               = true
   docker_image_name        = "python-app"
   docker_registry_url      = "ayushacr123.azurecr.io"
-  # docker_registry_username = "<registryname>"
-  # docker_registry_password = "<docker_registry_password>"
   acr_id                   = "/subscriptions/1ac2caa4-336e-4daa-b8f1-0fbabe2d4b11/resourceGroups/ayush-rg/providers/Microsoft.ContainerRegistry/registries/ayushacr123"
 
   site_config = {
     container_registry_use_managed_identity = true
   }
+
   app_settings = {
     foo = "bar"
   }
-
-  ##----------------------------------------------------------------------------- 
-  ## App Service logs
-  ##-----------------------------------------------------------------------------
 
   app_service_logs = {
     detailed_error_messages = false
@@ -89,8 +83,62 @@ module "app-container" {
     }
   }
 
-  ##----------------------------------------------------------------------------- 
-  ## log analytics
-  ##-----------------------------------------------------------------------------
   log_analytics_workspace_id = module.log-analytics.workspace_id
+}
+
+###############################################################
+# Blue-Green Deployment Configuration
+###############################################################
+
+# --- Blue Slot (Active Production) ---
+resource "azurerm_linux_web_app_slot" "blue" {
+  name          = "blue"
+  app_service_id = module.app-container.app_service_id  # ✅ FIXED
+  service_plan_id = module.app-container.app_service_plan_id
+
+  site_config {
+    linux_fx_version = "DOCKER|ayushacr123.azurecr.io/python-app:blue"
+    container_registry_use_managed_identity = true
+  }
+
+  app_settings = {
+    SLOT_NAME = "blue"
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# --- Green Slot (Staging Slot) ---
+resource "azurerm_linux_web_app_slot" "green" {
+  name          = "green"
+  app_service_id = module.app-container.app_service_id  # ✅ FIXED
+  service_plan_id = module.app-container.app_service_plan_id
+
+
+  site_config {
+    linux_fx_version = "DOCKER|ayushacr123.azurecr.io/python-app:green"
+    container_registry_use_managed_identity = true
+  }
+  app_settings = {
+    SLOT_NAME = "green"
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+###############################################################
+# Optional: Blue-Green Swap (Manual or Pipeline Triggered)
+###############################################################
+# This resource defines slot swap (to switch traffic)
+# You can trigger it manually or via CI/CD (e.g., GitHub Actions)
+
+resource "azurerm_web_app_slot_swap" "swap" {
+  resource_group_name = module.resource_group.resource_group_name
+  web_app_name        = module.app-container.app_service_name
+  slot_name           = azurerm_linux_web_app_slot.green.name   # New version (staging)
+  target_slot_name    = azurerm_linux_web_app_slot.blue.name    # Current production
 }

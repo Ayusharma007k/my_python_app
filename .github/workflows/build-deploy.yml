@@ -6,61 +6,85 @@ on:
 
 env:
   IMAGE_NAME: python-app
+  TF_DIR: ./terraform             # Update if your terraform path differs
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
+      ###############################################################
+      # Checkout Repository
+      ###############################################################
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      ###############################################################
+      # Configure Git (for Terraform modules hosted on GitHub)
+      ###############################################################
       - name: Configure Git for Terraform module downloads
         run: |
           git config --global url."https://${{ secrets.GH_TOKEN }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
-      - name: Log in to Azure
+      ###############################################################
+      # Login to Azure
+      ###############################################################
+      - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      ###############################################################
+      # Login to Azure Container Registry
+      ###############################################################
       - name: Log in to ACR
-        run: |
-          az acr login --name ${{ secrets.ACR_NAME }}
+        run: az acr login --name ${{ secrets.ACR_NAME }}
 
+      ###############################################################
+      # Determine Deployment Slot (Blue or Green)
+      ###############################################################
       - name: Determine Deployment Slot (Blue/Green)
         id: slot
         run: |
-          # Toggle deployment slot
           LAST_SLOT_FILE=".last_slot"
           if [ -f "$LAST_SLOT_FILE" ]; then
             LAST_SLOT=$(cat $LAST_SLOT_FILE)
             if [ "$LAST_SLOT" == "blue" ]; then
-              echo "green" > $LAST_SLOT_FILE
-              echo "slot=green" >> $GITHUB_OUTPUT
+              NEW_SLOT="green"
             else
-              echo "blue" > $LAST_SLOT_FILE
-              echo "slot=blue" >> $GITHUB_OUTPUT
+              NEW_SLOT="blue"
             fi
           else
-            echo "blue" > $LAST_SLOT_FILE
-            echo "slot=blue" >> $GITHUB_OUTPUT
+            NEW_SLOT="blue"
           fi
+          echo $NEW_SLOT > $LAST_SLOT_FILE
+          echo "slot=$NEW_SLOT" >> $GITHUB_OUTPUT
 
-      - name: Build and Push Docker image to ACR
+      ###############################################################
+      # Build & Push Docker Image to ACR
+      ###############################################################
+      - name: Build and Push Docker image
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          az acr build --registry ${{ secrets.ACR_NAME }} \
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
             --image ${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
-            --image ${{ env.IMAGE_NAME }}:latest .
+            --image ${{ env.IMAGE_NAME }}:${{ steps.slot.outputs.slot }} \
+            .
 
+      ###############################################################
+      # Setup Terraform
+      ###############################################################
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
+      ###############################################################
+      # Terraform Init
+      ###############################################################
       - name: Terraform Init
-        working-directory: terraformv3/examples/complete/container_platform
+        working-directory: ${{ env.TF_DIR }}
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -68,8 +92,11 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform init -input=false
 
+      ###############################################################
+      # Terraform Plan
+      ###############################################################
       - name: Terraform Plan
-        working-directory: terraformv3/examples/complete/container_platform
+        working-directory: ${{ env.TF_DIR }}
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -77,17 +104,28 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           terraform plan \
-            -var="image_tag=${{ github.run_number }}" \
+            -var="docker_image_name=${{ env.IMAGE_NAME }}" \
+            -var="docker_registry_url=${{ secrets.ACR_LOGIN_SERVER }}" \
             -var="slot_name=${{ steps.slot.outputs.slot }}" \
-            -var="acr_login_server=${{ secrets.ACR_LOGIN_SERVER }}" \
-            -var="image_name=${{ env.IMAGE_NAME }}" \
+            -var="image_tag=${{ github.run_number }}" \
             -out=tfplan
 
+      ###############################################################
+      # Terraform Apply (Deploy Selected Slot)
+      ###############################################################
       - name: Terraform Apply
-        working-directory: terraformv3/examples/complete/container_platform
+        working-directory: ${{ env.TF_DIR }}
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform apply -auto-approve tfplan
+
+      ###############################################################
+      # Optional: Swap Slots (Green <-> Blue)
+      ###############################################################
+      - name: Swap Slots (Post Deployment)
+        if: success()
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -auto-approve -target=azurerm_web_app_slot_swap.swap
