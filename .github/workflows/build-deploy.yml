@@ -40,19 +40,25 @@ jobs:
             --image $IMAGE_NAME:$IMAGE_TAG \
             --image $IMAGE_NAME:latest .
 
+      # ------------------- Setup Terraform -------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5  # or your desired version
+
       # ------------------- Terraform Init -------------------
       - name: Terraform Init
-        working-directory: terraformv3/examples/complete/container_platform/  # update path to your Terraform files
+        working-directory: terraformv3/examples/complete/container_platform
         run: terraform init
 
       # ------------------- Terraform Plan -------------------
       - name: Terraform Plan
-        working-directory: terraformv3/examples/complete/container_platform/
+        working-directory: terraformv3/examples/complete/container_platform
         run: terraform plan -out=tfplan
 
       # ------------------- Terraform Apply -------------------
       - name: Terraform Apply
-        working-directory: terraformv3/examples/complete/container_platform/
+        working-directory: terraformv3/examples/complete/container_platform
         run: terraform apply -auto-approve tfplan
 
       # ------------------- Determine Idle Slot -------------------
