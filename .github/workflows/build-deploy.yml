@@ -44,7 +44,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5  # or your desired version
+          terraform_version: 1.9.5
 
       # ------------------- Terraform Init -------------------
       - name: Terraform Init
@@ -75,6 +75,28 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform apply -auto-approve tfplan
+
+      # ------------------- Create Slots if Missing -------------------
+      - name: Ensure Blue/Green Slots Exist
+        run: |
+          RESOURCE_GROUP=${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP_NAME=${{ secrets.AZURE_APP_NAME }}
+
+          # Check & create blue slot
+          if ! az webapp deployment slot list --name $APP_NAME --resource-group $RESOURCE_GROUP --query "[?name=='blue']" -o tsv | grep -q 'blue'; then
+            echo "Creating blue slot..."
+            az webapp deployment slot create --name $APP_NAME --resource-group $RESOURCE_GROUP --slot blue
+          else
+            echo "Blue slot already exists"
+          fi
+
+          # Check & create green slot
+          if ! az webapp deployment slot list --name $APP_NAME --resource-group $RESOURCE_GROUP --query "[?name=='green']" -o tsv | grep -q 'green'; then
+            echo "Creating green slot..."
+            az webapp deployment slot create --name $APP_NAME --resource-group $RESOURCE_GROUP --slot green
+          else
+            echo "Green slot already exists"
+          fi
 
       # ------------------- Determine Idle Slot -------------------
       - name: Determine Idle Slot
