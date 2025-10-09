@@ -42,17 +42,17 @@ jobs:
 
       # ------------------- Terraform Init -------------------
       - name: Terraform Init
-        working-directory: ./terraformv3/complete/container_platform/  # update path to your Terraform files
+        working-directory: terraformv3/complete/container_platform/  # update path to your Terraform files
         run: terraform init
 
       # ------------------- Terraform Plan -------------------
       - name: Terraform Plan
-        working-directory: ./terraformv3/complete/container_platform/
+        working-directory: terraformv3/complete/container_platform/
         run: terraform plan -out=tfplan
 
       # ------------------- Terraform Apply -------------------
       - name: Terraform Apply
-        working-directory: ./terraformv3/complete/container_platform/
+        working-directory: terraformv3/complete/container_platform/
         run: terraform apply -auto-approve tfplan
 
       # ------------------- Determine Idle Slot -------------------
