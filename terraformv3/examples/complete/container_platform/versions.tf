@@ -14,13 +14,6 @@ variable "slot_name" {
   description = "Deployment slot name (blue or green)"
   default     = "blue"
 }
-
-variable "image_tag" {
-  type        = string
-  description = "Docker image tag to deploy"
-  default     = "latest"
-}
-
 variable "docker_registry_url" {
   type        = string
   description = "ACR login server URL"
