@@ -6,6 +6,10 @@ variable "slot_name" {
   description = "Slot name"
   type        = string
 }
+variable "image_tag" {
+  description = "Tag for the Docker image"
+  type        = string
+}
 
 variable "location" {
   description = "Azure region for deployment"
