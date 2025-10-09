@@ -6,7 +6,7 @@ on:
 
 env:
   IMAGE_NAME: python-app
-  TF_DIR: ./terraform             # Update if your terraform path differs
+  TF_DIR: terraformv3/examples/complete/container_platform             # Update if your terraform path differs
 
 jobs:
   build-and-deploy:
