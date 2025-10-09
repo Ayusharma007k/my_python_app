@@ -1,4 +1,4 @@
-name: Build and Deploy Web App (Blue/Green with Auto-Swap)
+name: Build and Deploy Single Web App (Auto Blue-Green)
 
 on:
   push:
@@ -6,114 +6,91 @@ on:
 
 env:
   IMAGE_NAME: python-app
-  TF_DIR: terraformv3/examples/complete/container_platform             # Update if your terraform path differs
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout Repository
-  
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Configure Git (for Terraform modules hosted on GitHub)
-
       - name: Configure Git for Terraform module downloads
         run: |
-          git config --global url."https://${{ secrets.GH_TOKEN }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://${GITHUB_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
-      # Login to Azure
-
-      - name: Azure Login
+      - name: Log in to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Login to Azure Container Registry
-
       - name: Log in to ACR
-        run: az acr login --name ${{ secrets.ACR_NAME }}
-
-      # Determine Deployment Slot (Blue or Green)
-
-      - name: Determine Deployment Slot (Blue/Green)
-        id: slot
         run: |
-          LAST_SLOT_FILE=".last_slot"
-          if [ -f "$LAST_SLOT_FILE" ]; then
-            LAST_SLOT=$(cat $LAST_SLOT_FILE)
-            if [ "$LAST_SLOT" == "blue" ]; then
-              NEW_SLOT="green"
-            else
-              NEW_SLOT="blue"
-            fi
-          else
-            NEW_SLOT="blue"
-          fi
-          echo $NEW_SLOT > $LAST_SLOT_FILE
-          echo "slot=$NEW_SLOT" >> $GITHUB_OUTPUT
-
-      # Build & Push Docker Image to ACR
+          az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Build and Push Docker image
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          az acr build \
-            --registry ${{ secrets.ACR_NAME }} \
-            --image ${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
-            --image ${{ env.IMAGE_NAME }}:${{ steps.slot.outputs.slot }} \
-            .
-      # Setup Terraform
+          az acr build --registry ${{ secrets.ACR_NAME }} \
+            --image $IMAGE_NAME:$IMAGE_TAG \
+            --image $IMAGE_NAME:latest .
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.5
-
-      # Terraform Init
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-        run: terraform init -input=false
-
-      # Terraform Plan
-
-      - name: Terraform Plan
-        working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # ------------------- Determine Idle Slot -------------------
+      - name: Determine Idle Slot
+        id: idle-slot
         run: |
-          terraform plan \
-            -var="docker_image_name=${{ env.IMAGE_NAME }}" \
-            -var="docker_registry_url=${{ secrets.ACR_LOGIN_SERVER }}" \
-            -var="slot_name=${{ steps.slot.outputs.slot }}" \
-            -var="image_tag=${{ github.run_number }}" \
-            -out=tfplan
+          RESOURCE_GROUP=${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP_NAME=${{ secrets.AZURE_APP_NAME }}
 
-      # Terraform Apply (Deploy Selected Slot)
+          # Get current production slot's container image
+          PROD_IMAGE=$(az webapp config container show \
+            --name $APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --query "linuxFxVersion" -o tsv)
 
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-        run: terraform apply -auto-approve tfplan
+          echo "Current production image: $PROD_IMAGE"
 
-      # Optional: Swap Slots (Green <-> Blue)
+          # Decide idle slot
+          IDLE_SLOT="blue"
+          SLOT_BLUE_IMAGE=$(az webapp config container show --name $APP_NAME --resource-group $RESOURCE_GROUP --slot blue --query "linuxFxVersion" -o tsv)
+          SLOT_GREEN_IMAGE=$(az webapp config container show --name $APP_NAME --resource-group $RESOURCE_GROUP --slot green --query "linuxFxVersion" -o tsv)
 
-      - name: Swap Slots (Post Deployment)
-        if: success()
-        working-directory: ${{ env.TF_DIR }}
-        run: terraform apply -auto-approve -target=azurerm_web_app_slot_swap.swap
+          # If blue is production, deploy to green; else deploy to blue
+          if [[ "$SLOT_BLUE_IMAGE" == "$PROD_IMAGE" ]]; then
+            IDLE_SLOT="green"
+          else
+            IDLE_SLOT="blue"
+          fi
+
+          echo "Idle slot chosen for deployment: $IDLE_SLOT"
+          echo "slot_name=$IDLE_SLOT" >> $GITHUB_ENV
+
+      # ------------------- Deploy to Idle Slot -------------------
+      - name: Deploy to Idle Slot
+        run: |
+          IMAGE_TAG=${{ github.run_number }}
+          RESOURCE_GROUP=${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP_NAME=${{ secrets.AZURE_APP_NAME }}
+          SLOT_NAME=$slot_name  # read from previous step
+
+          echo "Deploying image $IMAGE_TAG to $SLOT_NAME slot..."
+          az webapp config container set \
+            --name $APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --slot $SLOT_NAME \
+            --docker-custom-image-name "${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" \
+            --docker-registry-server-managed-identity true
+
+      # ------------------- Swap Idle Slot to Production -------------------
+      - name: Swap Slot to Production
+        run: |
+          RESOURCE_GROUP=${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP_NAME=${{ secrets.AZURE_APP_NAME }}
+          SLOT_NAME=$slot_name
+
+          echo "Swapping $SLOT_NAME slot with production..."
+          az webapp deployment slot swap \
+            --resource-group $RESOURCE_GROUP \
+            --name $APP_NAME \
+            --slot $SLOT_NAME
