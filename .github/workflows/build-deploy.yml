@@ -13,36 +13,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      ###############################################################
       # Checkout Repository
-      ###############################################################
+  
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      ###############################################################
       # Configure Git (for Terraform modules hosted on GitHub)
-      ###############################################################
+
       - name: Configure Git for Terraform module downloads
         run: |
           git config --global url."https://${{ secrets.GH_TOKEN }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
-      ###############################################################
       # Login to Azure
-      ###############################################################
+
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      ###############################################################
       # Login to Azure Container Registry
-      ###############################################################
+
       - name: Log in to ACR
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
-      ###############################################################
       # Determine Deployment Slot (Blue or Green)
-      ###############################################################
+
       - name: Determine Deployment Slot (Blue/Green)
         id: slot
         run: |
@@ -60,9 +55,8 @@ jobs:
           echo $NEW_SLOT > $LAST_SLOT_FILE
           echo "slot=$NEW_SLOT" >> $GITHUB_OUTPUT
 
-      ###############################################################
       # Build & Push Docker Image to ACR
-      ###############################################################
+
       - name: Build and Push Docker image
         run: |
           IMAGE_TAG=${{ github.run_number }}
@@ -71,18 +65,15 @@ jobs:
             --image ${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
             --image ${{ env.IMAGE_NAME }}:${{ steps.slot.outputs.slot }} \
             .
-
-      ###############################################################
       # Setup Terraform
-      ###############################################################
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
-      ###############################################################
       # Terraform Init
-      ###############################################################
+
       - name: Terraform Init
         working-directory: ${{ env.TF_DIR }}
         env:
@@ -92,9 +83,8 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform init -input=false
 
-      ###############################################################
       # Terraform Plan
-      ###############################################################
+
       - name: Terraform Plan
         working-directory: ${{ env.TF_DIR }}
         env:
@@ -110,9 +100,8 @@ jobs:
             -var="image_tag=${{ github.run_number }}" \
             -out=tfplan
 
-      ###############################################################
       # Terraform Apply (Deploy Selected Slot)
-      ###############################################################
+
       - name: Terraform Apply
         working-directory: ${{ env.TF_DIR }}
         env:
@@ -122,9 +111,8 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform apply -auto-approve tfplan
 
-      ###############################################################
       # Optional: Swap Slots (Green <-> Blue)
-      ###############################################################
+
       - name: Swap Slots (Post Deployment)
         if: success()
         working-directory: ${{ env.TF_DIR }}

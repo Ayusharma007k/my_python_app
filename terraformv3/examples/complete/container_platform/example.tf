@@ -1,13 +1,11 @@
-###############################################################
 # Provider
-###############################################################
+
 provider "azurerm" {
   features {}
 }
 
-###############################################################
 # Local declaration
-###############################################################
+
 locals {
   name        = "ayush-test"
   environment = "dev"
@@ -15,9 +13,8 @@ locals {
   location    = "Canada Central"
 }
 
-###############################################################
 # Resource Group
-###############################################################
+
 module "resource_group" {
   source      = "clouddrove/resource-group/azure"
   version     = "1.0.2"
@@ -27,9 +24,8 @@ module "resource_group" {
   location    = local.location
 }
 
-###############################################################
 # Log Analytics
-###############################################################
+
 module "log-analytics" {
   source                           = "clouddrove/log-analytics/azure"
   version                          = "1.1.0"
@@ -43,9 +39,8 @@ module "log-analytics" {
   log_analytics_workspace_id       = module.log-analytics.workspace_id
 }
 
-###############################################################
 # Primary App Service (Production Slot)
-###############################################################
+
 module "app-container" {
   source              = "../../.."
   name                = local.name
@@ -86,9 +81,7 @@ module "app-container" {
   log_analytics_workspace_id = module.log-analytics.workspace_id
 }
 
-###############################################################
 # Blue-Green Deployment Configuration
-###############################################################
 
 # --- Blue Slot (Active Production) ---
 resource "azurerm_linux_web_app_slot" "blue" {
@@ -130,11 +123,7 @@ resource "azurerm_linux_web_app_slot" "green" {
   }
 }
 
-###############################################################
 # Optional: Blue-Green Swap (Manual or Pipeline Triggered)
-###############################################################
-# This resource defines slot swap (to switch traffic)
-# You can trigger it manually or via CI/CD (e.g., GitHub Actions)
 
 resource "azurerm_web_app_slot_swap" "swap" {
   resource_group_name = module.resource_group.resource_group_name
