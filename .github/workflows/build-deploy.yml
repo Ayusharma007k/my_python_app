@@ -76,13 +76,15 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: terraform apply -auto-approve tfplan
 
-      # ------------------- Create Slots if Missing -------------------
+      # ------------------- Create Blue/Green Slots if Missing -------------------
       - name: Ensure Blue/Green Slots Exist
         run: |
           RESOURCE_GROUP=${{ secrets.AZURE_RESOURCE_GROUP }}
           APP_NAME=${{ secrets.AZURE_APP_NAME }}
 
-          # Check & create blue slot
+          echo "Checking for blue and green slots in $APP_NAME..."
+
+          # Create blue slot if missing
           if ! az webapp deployment slot list --name $APP_NAME --resource-group $RESOURCE_GROUP --query "[?name=='blue']" -o tsv | grep -q 'blue'; then
             echo "Creating blue slot..."
             az webapp deployment slot create --name $APP_NAME --resource-group $RESOURCE_GROUP --slot blue
@@ -90,7 +92,7 @@ jobs:
             echo "Blue slot already exists"
           fi
 
-          # Check & create green slot
+          # Create green slot if missing
           if ! az webapp deployment slot list --name $APP_NAME --resource-group $RESOURCE_GROUP --query "[?name=='green']" -o tsv | grep -q 'green'; then
             echo "Creating green slot..."
             az webapp deployment slot create --name $APP_NAME --resource-group $RESOURCE_GROUP --slot green
@@ -123,8 +125,7 @@ jobs:
           echo "Idle slot chosen: $IDLE_SLOT"
 
       # ------------------- Deploy to Idle Slot -------------------
-      # ------------------- Deploy to Idle Slot -------------------
-        - name: Deploy to Idle Slot
+      - name: Deploy to Idle Slot
         run: |
           IMAGE_TAG=${{ github.run_number }}
           RESOURCE_GROUP=${{ secrets.AZURE_RESOURCE_GROUP }}
@@ -138,9 +139,8 @@ jobs:
             --docker-custom-image-name "${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" \
             --docker-registry-server-url "https://${{ secrets.ACR_NAME }}.azurecr.io"
 
-    # Optional: Restart slot to ensure new image pulls correctly
+          echo "Restarting slot to apply new image..."
           az webapp restart --name $APP_NAME --resource-group $RESOURCE_GROUP --slot $SLOT_NAME
-
 
       # ------------------- Swap Idle Slot to Production -------------------
       - name: Swap Slot to Production
@@ -149,6 +149,7 @@ jobs:
           APP_NAME=${{ secrets.AZURE_APP_NAME }}
           SLOT_NAME=$slot_name
 
+          echo "Swapping $SLOT_NAME slot with production..."
           az webapp deployment slot swap \
             --resource-group $RESOURCE_GROUP \
             --name $APP_NAME \
